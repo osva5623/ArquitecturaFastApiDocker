@@ -1,4 +1,11 @@
 fastapi
 uvicorn[standard]
 httpx
+httplib2
 python-dotenv
+google-auth
+requests
+emoji
+oauth2client
+google-cloud-pubsub
+./rbm-api-helper

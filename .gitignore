@@ -9,7 +9,7 @@ __pycache__/
 
 # C extensions
 *.so
-
+rbm-agent-service-account-credentials.json
 # Distribution / packaging
 .Python
 build/

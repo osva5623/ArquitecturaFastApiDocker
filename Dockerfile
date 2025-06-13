@@ -1,5 +1,5 @@
 
-FROM python:3.11-slim
+FROM python:3.6
 
 # Establece el directorio de trabajo
 WORKDIR /app
@@ -10,11 +10,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Instalar dependencias para ngrok
 RUN apt-get update && \
-    apt-get install -y curl unzip && \
+    apt-get install -y --no-install-recommends curl unzip gnupg && \
     curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null && \
-    echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | tee /etc/apt/sources.list.d/ngrok.list && \
+    echo "deb https://ngrok-agent.s3.amazonaws.com buster main" > /etc/apt/sources.list.d/ngrok.list && \
     apt-get update && \
-    apt-get install -y ngrok
-
+    apt-get install -y --no-install-recommends ngrok && \
+    rm -rf /var/lib/apt/lists/*
 # Expone el puerto de la API
 EXPOSE 5060
