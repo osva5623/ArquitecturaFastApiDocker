@@ -1,4 +1,5 @@
 fastapi
+aio_pika
 uvicorn[standard]
 httpx
 httplib2
@@ -8,4 +9,5 @@ requests
 emoji
 oauth2client
 google-cloud-pubsub
+watchfiles
 ./rbm-api-helper

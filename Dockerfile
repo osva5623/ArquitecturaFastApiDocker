@@ -1,11 +1,14 @@
 
-FROM python:3.6
+FROM python:3.9-slim
 
 # Establece el directorio de trabajo
 WORKDIR /app
 
 # Copia e instala dependencias
 COPY requirements.txt .
+
+COPY /app/rbm-api-helper /app/rbm-api-helper
+
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Instalar dependencias para ngrok

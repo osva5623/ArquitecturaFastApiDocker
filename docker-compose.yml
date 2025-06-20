@@ -1,6 +1,8 @@
 services:
   rcs-api:
-    build: .
+    build: 
+      context: .
+      dockerfile: Dockerfile
     container_name: rcs_backend
     ports:
       - "5050:8000"
@@ -8,7 +10,8 @@ services:
       - .env
     volumes:
       - ./app:/app          # Monta tu código fuente local en el contenedor
-      
+    depends_on:
+      - rabbitmq  
     command: >
       sh -c "
       uvicorn main:app --host 0.0.0.0 --port 8000 --reload &
@@ -16,3 +19,19 @@ services:
       ngrok config add-authtoken $NGROK_AUTHTOKEN &&
       ngrok http 8000"
     restart: always
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"     # RabbitMQ (AMQP)
+      - "15672:15672"   # Management UI
+    environment:
+      RABBITMQ_DEFAULT_USER: user
+      RABBITMQ_DEFAULT_PASS: pass
+  worker:
+    build:
+      context: .
+    volumes:
+      - ./app:/app    
+    command: python run_worker.py
+    depends_on:
+      - rabbitmq

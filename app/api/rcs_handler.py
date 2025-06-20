@@ -7,6 +7,10 @@ import base64
 import json
 import logging
 
+# app/main.py
+import base64, json, asyncio
+from aio_pika import connect_robust, Message
+
 from rcs_business_messaging import rbm_service
 from rcs_business_messaging import messages
 from rcs_business_messaging import agent_config
@@ -14,6 +18,7 @@ router = APIRouter()
 
 # === Configuración ===
 AGENT_ID = "prueba_ujyndkxw_agent"
+RABBIT_URL = "amqp://user:pass@rabbitmq/"
 
 
 logger = logging.getLogger("uvicorn")
@@ -42,7 +47,49 @@ async def hello_world():
     return {"mensaje": "Hola Mundo desde FastAPI"}
 
 
+
+
 @router.post("/webhook")
+async def webhook(request: Request):
+    try:
+        payload = await request.json()
+
+        if "clientToken" in payload:
+            return JSONResponse(content={"secret": payload.get("secret")}, status_code=200)
+
+        if "message" not in payload:
+            return JSONResponse(content={"status": "no_data"}, status_code=200)
+
+        data_encoded = payload["message"].get("data")
+        if not data_encoded:
+            return JSONResponse(content={"status": "no_data"}, status_code=200)
+
+            
+        decoded_json = base64.b64decode(data_encoded).decode("utf-8")
+        logger.info("⚠️payload: %s", decoded_json)
+
+        if "senderPhoneNumber" in decoded_json and "text" in decoded_json:
+
+            # Enviar a la cola
+            connection = await connect_robust(RABBIT_URL)
+            channel = await connection.channel()
+            queue = await channel.declare_queue("rcs_messages", durable=True)
+            await channel.default_exchange.publish(
+                Message(body=decoded_json.encode()),
+                routing_key=queue.name
+            )
+            await connection.close()
+
+            return JSONResponse(status_code=200, content={"status": "queued"})
+        # Ignorar otros eventos del sistema
+        logger.info("⚠️ Evento ignorado (no es mensaje de texto de usuario): %s", decoded_json)
+    
+    except Exception as e:
+        logger.error(f"Webhook handling failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal Server Error")
+
+
+@router.post("/antiguowebhook")
 async def callback(request: Request):
     try:
         payload = await request.json()
@@ -70,6 +117,7 @@ async def callback(request: Request):
         request_body = json.loads(decoded_json)
         # ✉️ Evento de mensaje entrante
         if "senderPhoneNumber" in request_body:
+            JSONResponse(status_code=200, content={"status": "ok"})
             rbm_service.init(AGENT_ID)
             # Extract the text from userEvent
             msisdn = request_body["senderPhoneNumber"]
@@ -79,7 +127,7 @@ async def callback(request: Request):
             messages.MessageCluster().append_message(message_text).send_to_msisdn(msisdn)
 
             logger.info(f"Mensaje enviado a {msisdn}")
-        return JSONResponse(status_code=200, content={"status": "ok"})
+        return 
 
     except Exception as e:
         logger.error(f"Webhook handling failed: {e}")
