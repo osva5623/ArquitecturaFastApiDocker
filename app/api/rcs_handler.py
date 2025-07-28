@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException,Request
+from pydantic import BaseModel
 from fastapi.responses import JSONResponse
 import argparse
 import datetime
@@ -47,6 +48,20 @@ async def hello_world():
     return {"mensaje": "Hola Mundo desde FastAPI"}
 
 
+@router.post("/submit")
+
+async def hello_world(request: Request):
+    payload = await request.json()
+    connection = await connect_robust(RABBIT_URL)
+    channel = await connection.channel()
+    queue = await channel.declare_queue("formulario_rcs", durable=True)
+    await channel.default_exchange.publish(
+                Message(body=json.dumps(payload).encode()),
+                routing_key=queue.name
+        )
+    await connection.close()
+
+    return {"mensaje": "Hola Mundo desde FastAPI"}
 
 
 @router.post("/webhook")
@@ -64,25 +79,23 @@ async def webhook(request: Request):
         if not data_encoded:
             return JSONResponse(content={"status": "no_data"}, status_code=200)
 
-            
-        decoded_json = base64.b64decode(data_encoded).decode("utf-8")
-        logger.info("⚠️payload: %s", decoded_json)
+        #logger.info(" ✅payload webhook original: %s", payload)    
+        #decoded_json = base64.b64decode(data_encoded).decode("utf-8")
+        #logger.info(" ✅payload webhook: %s", decoded_json)
 
-        if "senderPhoneNumber" in decoded_json and "text" in decoded_json:
-
+        logger.info(f" ✅payload webhook: {json.dumps(payload) }" )
             # Enviar a la cola
-            connection = await connect_robust(RABBIT_URL)
-            channel = await connection.channel()
-            queue = await channel.declare_queue("rcs_messages", durable=True)
-            await channel.default_exchange.publish(
-                Message(body=decoded_json.encode()),
+        connection = await connect_robust(RABBIT_URL)
+        channel = await connection.channel()
+        queue = await channel.declare_queue("rcs_messages", durable=True)
+        await channel.default_exchange.publish(
+                Message(body=json.dumps(payload).encode()),
                 routing_key=queue.name
-            )
-            await connection.close()
+        )
+        await connection.close()
 
-            return JSONResponse(status_code=200, content={"status": "queued"})
+        return JSONResponse(status_code=200, content={"status": "queued"})
         # Ignorar otros eventos del sistema
-        logger.info("⚠️ Evento ignorado (no es mensaje de texto de usuario): %s", decoded_json)
     
     except Exception as e:
         logger.error(f"Webhook handling failed: {e}")
