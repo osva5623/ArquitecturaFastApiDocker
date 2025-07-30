@@ -2,6 +2,12 @@ import asyncio, json, aio_pika
 from aio_pika import connect_robust
 import logging
 import base64
+import json
+import uuid
+import requests
+from google.oauth2 import service_account
+from google.auth.transport.requests import Request
+
 
 from core.rbm.rbm_service import RBMService
 from core.rbm.rbm_repository import RBMRepository
@@ -17,6 +23,10 @@ AGENT_ID = "prueba_ujyndkxw_agent"
 RABBITMQ_URL = "amqp://user:pass@rabbitmq/"
 MAX_RETRIES = 10
 RETRY_SECONDS = 3
+
+SERVICE_ACCOUNT_FILE = "resource/rbm-agent-service-account-credentials.json"
+REGION = "us"  # o "europe-west1", según tu configuración
+
 
 
 """
@@ -73,63 +83,152 @@ async def handle_message(body: bytes):
     if "SUGGESTION_RESPONSE" == tipo_mensaje:
         postback = data_decoded["suggestionResponse"].get("postbackData", "").lower()
         if postback == "acepto":
-            mensaje = """Tu solicitud fue recibida correctamente y estamos trabajando en activarla.
-        📦 Detalles del plan:
-
-        6 GB extra para navegar, ver videos y usar tus apps favoritas
-
-        Vigencia: [X días/semanas] a partir del momento de activación
-
-        Compatible con tu plan actual, sin cambios en tu número ni configuraciones
-
-        🕒 ¿Cuándo se activará?
-        La activación se hará en un plazo máximo de [15 minutos / 1 hora]. Te enviaremos una confirmación cuando esté lista para que empieces a usar tus nuevos datos.
-
-        🚀 ¡Gracias por seguir con nosotros! Si tienes dudas, aquí estamos para ayudarte."""
+            mensaje = """ 📌Tu cambio de línea prepago a un plan de renta mensual con TikTok, WhatsApp, Instagram y más se aplicará en las siguientes 24 horas después de tu confirmación ⏰.
+Para completar, es muy importante que finalices este registro.
+Puedes consultar tus beneficios en la imagen que recibiste al inicio."""
 
             mensajeRbm = rbm_service_udp.rbm_message(mensaje)
             cluster = messages.MessageCluster().append_message(mensajeRbm)
 
-
+            MESSAGE_ID = str(uuid.uuid4().int) + "a"
             cluster.send_to_msisdn(msisdn)
+            SCOPES = ["https://www.googleapis.com/auth/rcsbusinessmessaging"]
+            credentials = service_account.Credentials.from_service_account_file(
+                SERVICE_ACCOUNT_FILE, scopes=SCOPES
+            )
+            credentials.refresh(Request())
+            access_token = credentials.token
 
-            url=f"https://formularios-master-ackcbg.laravel.cloud/formularios/{formId}"
-            suggestions = [messages.OpenUrlAction(
-            'Captura de datos',
-            'reply:datos_capturados',
-            url)]
-            title = 'Informacion de tu cuenta'
-            description = 'Por favor, captura los datos de tu cuenta para completar la migración.'
 
-            rich_card = messages.StandaloneCard('VERTICAL',
-                                        title,
-                                        description,
-                                        suggestions,
-                                        None,
-                                        None,
-                                        None,
-                                        'MEDIUM')
-            cluster = messages.MessageCluster().append_message(rich_card)
-            cluster.send_to_msisdn(msisdn)
+            
+            logger.info(f"token {access_token}")
+            payload = {
+                "contentMessage": {
+                    "richCard": {
+                        "standaloneCard": {
+                            "cardOrientation": "VERTICAL",
+                            
+                            "cardContent": {
+                                "title": "Informacion de tu cuenta",
+                                "description": "Por favor, captura los datos de tu cuenta para completar la migración.",
+                                "suggestions": [
+                                    {
+                                        "action": {
+                                            "text": "Captura de datos",
+                                            "postbackData": "reply:datos_capturados",
+                                            "openUrlAction": {
+                                                "url": f"https://formularios-master-ackcbg.laravel.cloud/formularios/{msisdn}_sep_{AGENT_ID}",
+                                                "application": "WEBVIEW",
+                                                "webviewViewMode": "TALL",
+                                                "description": "Accessibility description"
+                                            }
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "suggestions": []
+                }
+            }
+
+            url = f"https://rcsbusinessmessaging.googleapis.com/v1/phones/{msisdn}/agentMessages?messageId={MESSAGE_ID}&agentId={AGENT_ID}"
+
+            # === ENVIAR MENSAJE ===
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json",
+                "User-Agent": "curl/rcs-business-messaging"
+            }
+            json_data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            response = requests.post(url, headers=headers, data=json_data)
+            
+
+
+
+
         elif postback == "otra_ocasion":
-            pass
-        elif postback == "correctos":
-            mensaje = """ 🎉 ¡Gracias por completar el formulario!
-                        ✅ Hemos recibido tus datos correctamente y están siendo validados.
-                        🕒 En breve recibirás una confirmación con los siguientes pasos.
-                        📲 Si tienes dudas, no dudes en responder este mensaje. """
+
+            mensaje = """❌ Has rechazado el cambio de tu línea a un plan de renta mensual.
+
+Tu línea continuará como prepago y no se aplicará ningún cambio.F
+
+📞 Si cambias de opinión, puedes solicitar la oferta por llamada telefónica con uno de nuestros asesores.
+
+⏳ Recuerda que esta promoción con TikTok, WhatsApp, Instagram y más está disponible por tiempo limitado, y podrías perder los beneficios si no confirmas pronto.
+                        """
             mensajeRbm = rbm_service_udp.rbm_message(mensaje)
             cluster = messages.MessageCluster().append_message(mensajeRbm)
             cluster.send_to_msisdn(msisdn)
+        elif postback == "correctos":
+            mensaje = """✅ ¡Terminamos!.
+                        Una vez CONFIRADO el cambio de modalidad de tu línea de recarga al plan de renta mensual seleccionado, recibirás los detalles en el correo electrónico proporcionado con la información de tus nuevos beneficios contratados.
+También puedes consultar los detalles de tu cuenta en la app Mi Movistar MX: 
+                        https://play.google.com/store/apps/details?id=com.movistarmx.mx.app"""
+            mensajeRbm = rbm_service_udp.rbm_message(mensaje)
+            cluster = messages.MessageCluster().append_message(mensajeRbm)
+            cluster.send_to_msisdn(msisdn)
+        elif postback == "incorrectos":
+            MESSAGE_ID = str(uuid.uuid4().int) + "a"
+            SCOPES = ["https://www.googleapis.com/auth/rcsbusinessmessaging"]
+            credentials = service_account.Credentials.from_service_account_file(
+                SERVICE_ACCOUNT_FILE, scopes=SCOPES
+            )
+            credentials.refresh(Request())
+            access_token = credentials.token
 
+
+            
+            logger.info(f"token {access_token}")
+            payload = {
+                "contentMessage": {
+                    "richCard": {
+                        "standaloneCard": {
+                            "cardOrientation": "VERTICAL",
+                            
+                            "cardContent": {
+                                "title": "Informacion de tu cuenta",
+                                "description": "Por favor, captura los datos de tu cuenta para completar la migraci\u00f3n.",
+                                "suggestions": [
+                                    {
+                                        "action": {
+                                            "text": "Captura de datos",
+                                            "postbackData": "reply:datos_capturados",
+                                            "openUrlAction": {
+                                                "url": f"https://formularios-master-ackcbg.laravel.cloud/formularios/{msisdn}_sep_{AGENT_ID}",
+                                                "application": "WEBVIEW",
+                                                "webviewViewMode": "TALL",
+                                                "description": "Accessibility description"
+                                            }
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "suggestions": []
+                }
+            }
+
+            url = f"https://rcsbusinessmessaging.googleapis.com/v1/phones/{msisdn}/agentMessages?messageId={MESSAGE_ID}&agentId={AGENT_ID}"
+
+            # === ENVIAR MENSAJE ===
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json",
+                "User-Agent": "curl/rcs-business-messaging"
+            }
+            json_data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            response = requests.post(url, headers=headers, data=json_data)
     elif "TEXT" == tipo_mensaje:
+
         orientation = "VERTICAL"
         title = "Tienes 6gb esperandote 🔥🚀"
         description = """🚀 Actívala ahora y empieza a disfrutar de más velocidad, más libertad y más conexión donde quiera que estés.
     No dejes pasar esta oportunidad, los GB no van a esperar para siempre 😉
 
     👉 Toca aquí y aprovecha esta promo antes de que se acabe."""
-        image_url = "https://tienda.movistar.com.mx/media/wysiwyg/Home2025/rotativofijo1/1.Banner_Rotativo_FIJO_MIGRA.jpg"
+        image_url = "https://content-ci360.movistar.com.mx/tngcipecvus/2/5919d7c2-ef61-495e-9321-ba6d0c33708c"
         suggestions = {"Acepto migrarme": "acepto", "En otra ocasion": "otra_ocasion"}
         size = "MEDIUM"
         """
@@ -175,7 +274,10 @@ async def handle_message_formulario(body: bytes):
     logger.info(f"🔔 Procesando mensaje de formulario: {payload}")
 
     msisdn= payload["usuario"].split('_sep_')[0]
+    if(len(msisdn) < 13):
+        return 0
     nombre = payload["name"]
+    email = payload["email"]
     apellido_p = payload["apellidoP"]
     apellido_m = payload["apellidoM"]
     fecha_nacimiento = payload["day"]+"/"+ payload["month"]+"/"+payload["year"]
@@ -187,7 +289,8 @@ async def handle_message_formulario(body: bytes):
     Nombre: {nombre}
     Apellido paterno: {apellido_p}  
     Apellido materno: {apellido_m}
-    Fecha de nacimiento: {fecha_nacimiento}.
+    Fecha de nacimiento: {fecha_nacimiento}
+    Correo electronico: {email}
     """
     title = '¿Podrías confirmar los datos que capturaste son correctos?'
     suggestions = {"Sí, son correctos": "correctos", "No, son incorrectos": "incorrectos"}
