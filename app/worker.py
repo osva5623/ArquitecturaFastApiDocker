@@ -162,11 +162,28 @@ Tu línea continuará como prepago y no se aplicará ningún cambio.F
             cluster.send_to_msisdn(msisdn)
         elif postback == "correctos":
             mensaje = """✅ ¡Terminamos!.
-                        Una vez CONFIRADO el cambio de modalidad de tu línea de recarga al plan de renta mensual seleccionado, recibirás los detalles en el correo electrónico proporcionado con la información de tus nuevos beneficios contratados.
-También puedes consultar los detalles de tu cuenta en la app Mi Movistar MX: 
-                        https://play.google.com/store/apps/details?id=com.movistarmx.mx.app"""
+            Una vez CONFIRMADO el cambio de modalidad de tu línea de recarga al plan de renta mensual seleccionado, recibirás los detalles en el correo electrónico proporcionado con la información de tus nuevos beneficios contratados.
+También puedes consultar los detalles de tu cuenta en la app Mi Movistar MX:"""
+
+
             mensajeRbm = rbm_service_udp.rbm_message(mensaje)
             cluster = messages.MessageCluster().append_message(mensajeRbm)
+            #cluster.send_to_msisdn(msisdn)
+
+            suggestions = [
+                messages.OpenUrlAction('Abrir',
+                        'reply:postback_data_1234',
+                        'movistarmxapp://inicio'),
+                messages.OpenUrlAction('Descargar',
+                        'reply:postback_data_1234',
+                        'https://play.google.com/store/apps/details?id=com.movistarmx.mx.app&hl=es_MX&pli=1')
+            ]
+            #mensajeRbm = rbm_service_udp.rbm_message('a')
+            cluster = messages.MessageCluster().append_message(mensajeRbm)
+
+            for suggestion in suggestions:
+                cluster.append_suggestion_chip(suggestion)
+
             cluster.send_to_msisdn(msisdn)
         elif postback == "incorrectos":
             MESSAGE_ID = str(uuid.uuid4().int) + "a"
